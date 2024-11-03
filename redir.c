@@ -1,63 +1,54 @@
 #include "redir.h"
 
-#include <fcntl.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
 #include <unistd.h>
-#include <wait.h>
 
-int redir(char* input_file, char* cmd, char* output_file) {
-    int input_fd;
-    if (strcmp(input_file, "-") == 0) {
-        input_fd = STDIN_FILENO;
-    } else {
-        input_fd = open(input_file, O_RDONLY);
-        if (input_fd == -1) {
-            fprintf(stderr, "Failed to open %s\n", input_file);
-            return 1;
+void add_character_to_string(char *str, char c) {
+    int len = strlen(str);
+    str[len] = c;
+    str[len + 1] = '\0';
+}
+
+// splits string by spaces; add a NULL into the array after the last word
+void split(char *cmd, char *words[], char delimiter) {
+    int word_count = 0;
+    char *next_char = cmd;
+    char current_word[1000];
+    strcpy(current_word, "");
+
+    while (*next_char != '\0') {
+        if (*next_char == delimiter) {
+            words[word_count++] = strdup(current_word);
+            strcpy(current_word, "");
+        } else {
+            add_character_to_string(current_word, *next_char);
+        }
+        ++next_char;
+    }
+    words[word_count++] = strdup(current_word);
+    words[word_count] = NULL;
+}
+
+// true = found in path, false = not found in path
+bool find_absolute_path(char *cmd, char *absolute_path) {
+    char *directories[1000];
+
+    split(getenv("PATH"), directories, ':');
+
+    // look in array until I find the paththing + cmd
+    for (int ix = 0; directories[ix] != NULL; ix++) {
+        char path[1000];
+        strcpy(path, directories[ix]);
+        add_character_to_string(path, '/');
+        strcat(path, cmd);
+
+        if (access(path, X_OK) == 0) {
+            strcpy(absolute_path, path);
+            return true;
         }
     }
-
-    int output_fd = open(output_file, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
-    if (output_fd == -1) {
-        fprintf(stderr, "Failed to open %s\n", output_file);
-        return 1;
-    }
-
-    // Split cmd into arguments
-    char** new_argv = (char**)malloc(sizeof(char*) * (strlen(cmd) + 1));
-
-    // Tokenize
-    int arg_count = 0;
-    char* token = strtok(cmd, " ");
-    while (token != NULL) {
-        new_argv[arg_count++] = token;
-        token = strtok(NULL, " ");
-    }
-    new_argv[arg_count] = NULL;
-
-    // Fork and execute
-    int child_pid = fork();
-    if (child_pid == 0) {
-        if (input_fd != STDIN_FILENO) {
-            dup2(input_fd, STDIN_FILENO);
-            close(input_fd);
-        }
-        dup2(output_fd, STDOUT_FILENO);
-        close(output_fd);
-
-        execvp(new_argv[0], new_argv);
-        fprintf(stderr, "Failed to execute %s\n", new_argv[0]);
-        exit(1);
-    }
-
-    close(input_fd);
-    close(output_fd);
-    free(new_argv);
-
-    wait(NULL);
-
-    return 0;
+    return false;
 }
